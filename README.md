@@ -6,6 +6,7 @@
 ## Features
 
 - Full Azure SDK Client support; use `SecretClient`, `KeyClient` or `CertificateClient` as normal.
+- [Azure CLI support](#using-azure-cli) via `az keyvault` commands with `--id` parameter.
 - Destroy all secrets between sessions, or keep a persisted database.
 - Works standalone with [Docker](#running-the-emulator-with-docker), easy integration with [.NET Aspire](#running-the-emulator-with-net-aspire).
 - [TestContainers Module](./src/TestContainers/dotnet/).
@@ -199,6 +200,110 @@ var secret = await secretClient.SetSecretAsync("mySecretName", "mySecretValue");
 ```
 
 [You can see more examples here for various test frameworks and scenarios.](./src/TestContainers/dotnet/EXAMPLES.md)
+
+## Using Azure CLI
+
+The Azure Key Vault Emulator is compatible with the Azure CLI. The emulator accepts any valid JWT token, including tokens from Azure AD obtained via `az login`.
+
+### Prerequisites
+
+1. **Azure CLI installed** and logged in with `az login`
+2. **SSL certificate trusted** or set `AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1`
+3. **Emulator running** at `https://localhost:4997`
+
+```bash
+# Allow self-signed certificates (if not using trusted certs)
+export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
+```
+
+### Using the `--id` Parameter
+
+Many `az keyvault` commands support the `--id` parameter, which accepts a full URL. This allows you to target the emulator directly:
+
+#### Secrets
+
+```bash
+# List all secrets
+az keyvault secret list --id "https://localhost:4997"
+
+# Get a specific secret
+az keyvault secret show --id "https://localhost:4997/secrets/MySecret"
+
+# Delete a secret
+az keyvault secret delete --id "https://localhost:4997/secrets/MySecret"
+
+# Download a secret
+az keyvault secret download --id "https://localhost:4997/secrets/MySecret" --file secret.txt
+```
+
+#### Keys
+
+```bash
+# List all keys
+az keyvault key list --id "https://localhost:4997"
+
+# Get a specific key
+az keyvault key show --id "https://localhost:4997/keys/MyKey"
+
+# Delete a key
+az keyvault key delete --id "https://localhost:4997/keys/MyKey"
+```
+
+#### Certificates
+
+```bash
+# List all certificates
+az keyvault certificate list --id "https://localhost:4997"
+
+# Get a specific certificate
+az keyvault certificate show --id "https://localhost:4997/certificates/MyCert"
+
+# Delete a certificate
+az keyvault certificate delete --id "https://localhost:4997/certificates/MyCert"
+```
+
+### Commands Without `--id` Support
+
+Some commands like `az keyvault secret set` and `az keyvault certificate import` require `--vault-name` instead of `--id`. The `--vault-name` parameter appends `.vault.azure.net` to the name, which won't resolve to localhost.
+
+For these operations, you can use `curl` or the Azure SDKs:
+
+```bash
+# Get a token from the emulator
+TOKEN=$(curl -k -s "https://localhost:4997/token")
+
+# Create a secret using curl
+curl -k -X PUT "https://localhost:4997/secrets/MySecret?api-version=7.4" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "MySecretValue"}'
+
+# Import a certificate using curl
+curl -k -X POST "https://localhost:4997/certificates/MyCert/import?api-version=7.4" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "<base64-encoded-pfx>", "pwd": "certificate-password"}'
+```
+
+### Alternative: Hosts File Configuration
+
+To use `--vault-name` with all commands, you can add a hosts file entry to redirect a fake vault name to localhost. This requires running the emulator on port 443:
+
+```
+# Add to /etc/hosts (Linux/Mac) or C:\Windows\System32\drivers\etc\hosts (Windows)
+127.0.0.1 myvault.vault.azure.net
+```
+
+Then use standard commands:
+```bash
+az keyvault secret set --vault-name myvault --name MySecret --value "MySecretValue"
+az keyvault secret list --vault-name myvault
+```
+
+> [!NOTE]
+> This approach requires running the emulator on port 443 and proper SSL certificate configuration.
+
+For more information on the Azure Key Vault REST API, see the [official API documentation](https://learn.microsoft.com/en-us/rest/api/keyvault/).
 
 # Roadmap
 
